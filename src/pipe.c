@@ -285,13 +285,14 @@ static PyObject *
 Pipe_func_start_read2(Pipe *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_read2", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_read2", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -306,6 +307,7 @@ Pipe_func_start_read2(Pipe *self, PyObject *args)
         return NULL;
     }
 
+    ((Stream *)self)->read_bufsize = bufsize;
     tmp = ((Stream *)self)->on_read_cb;
     Py_INCREF(callback);
     ((Stream *)self)->on_read_cb = callback;

@@ -13,8 +13,8 @@ static uv_buf_t
 on_stream_alloc(uv_stream_t* handle, size_t suggested_size)
 {
     PyGILState_STATE gstate = PyGILState_Ensure();
-    uv_buf_t buf = uv_buf_init(PyMem_Malloc(suggested_size), suggested_size);
-    UNUSED_ARG(handle);
+    Stream *stream = (Stream *)handle->data;
+    uv_buf_t buf = uv_buf_init(PyMem_Malloc(stream->read_bufsize), stream->read_bufsize);
     PyGILState_Release(gstate);
     return buf;
 }
@@ -199,13 +199,14 @@ static PyObject *
 Stream_func_start_read(Stream *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_read", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_read", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -220,6 +221,7 @@ Stream_func_start_read(Stream *self, PyObject *args)
         return NULL;
     }
 
+    self->read_bufsize = bufsize;
     tmp = self->on_read_cb;
     Py_INCREF(callback);
     self->on_read_cb = callback;

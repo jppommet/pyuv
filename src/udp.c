@@ -13,8 +13,8 @@ static uv_buf_t
 on_udp_alloc(uv_udp_t* handle, size_t suggested_size)
 {
     PyGILState_STATE gstate = PyGILState_Ensure();
-    uv_buf_t buf = uv_buf_init(PyMem_Malloc(suggested_size), suggested_size);
-    UNUSED_ARG(handle);
+    UDP *udp = (UDP *)handle->data;
+    uv_buf_t buf = uv_buf_init(PyMem_Malloc(udp->read_bufsize), udp->read_bufsize);
     PyGILState_Release(gstate);
     return buf;
 }
@@ -181,13 +181,14 @@ static PyObject *
 UDP_func_start_recv(UDP *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_recv", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_recv", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -202,6 +203,7 @@ UDP_func_start_recv(UDP *self, PyObject *args)
         return NULL;
     }
 
+    self->read_bufsize = bufsize;
     tmp = self->on_read_cb;
     Py_INCREF(callback);
     self->on_read_cb = callback;
