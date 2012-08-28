@@ -13,8 +13,11 @@ static uv_buf_t
 on_udp_alloc(uv_udp_t* handle, size_t suggested_size)
 {
     PyGILState_STATE gstate = PyGILState_Ensure();
-    uv_buf_t buf = uv_buf_init(PyMem_Malloc(suggested_size), suggested_size);
-    UNUSED_ARG(handle);
+    uv_buf_t buf;
+    UDP *udp = (UDP *)handle->data;
+    PyObject *py_buf = PyBytes_FromStringAndSize((char *)NULL, udp->read_bufsize);
+    udp->tmp_buf = py_buf;
+    buf = uv_buf_init(PyBytes_AS_STRING(py_buf), udp->read_bufsize);
     PyGILState_Release(gstate);
     return buf;
 }
@@ -41,6 +44,7 @@ on_udp_read(uv_udp_t* handle, int nread, uv_buf_t buf, struct sockaddr* addr, un
     Py_INCREF(self);
 
     if (nread == 0) {
+        Py_XDECREF(self->tmp_buf);
         goto done;
     }
 
@@ -55,7 +59,10 @@ on_udp_read(uv_udp_t* handle, int nread, uv_buf_t buf, struct sockaddr* addr, un
             uv_ip6_name(&addr6, ip, INET6_ADDRSTRLEN);
             address_tuple = Py_BuildValue("(si)", ip, ntohs(addr6.sin6_port));
         }
-        data = PyBytes_FromStringAndSize(buf.base, nread);
+        data = self->tmp_buf;
+        if (buf.len != nread) {
+            _PyBytes_Resize(&data, nread);
+        }
         py_errorno = Py_None;
         Py_INCREF(Py_None);
     } else if (nread < 0) {
@@ -77,10 +84,7 @@ on_udp_read(uv_udp_t* handle, int nread, uv_buf_t buf, struct sockaddr* addr, un
     Py_DECREF(py_errorno);
 
 done:
-    /* In case of error libuv may not call alloc_cb */
-    if (buf.base != NULL) {
-        PyMem_Free(buf.base);
-    }
+    self->tmp_buf = NULL;
 
     Py_DECREF(self);
     PyGILState_Release(gstate);
@@ -181,13 +185,14 @@ static PyObject *
 UDP_func_start_recv(UDP *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_recv", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_recv", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -202,6 +207,7 @@ UDP_func_start_recv(UDP *self, PyObject *args)
         return NULL;
     }
 
+    self->read_bufsize = bufsize;
     tmp = self->on_read_cb;
     Py_INCREF(callback);
     self->on_read_cb = callback;
@@ -609,6 +615,7 @@ UDP_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (!self) {
         return NULL;
     }
+    self->tmp_buf = NULL;
     return (PyObject *)self;
 }
 

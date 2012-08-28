@@ -13,8 +13,11 @@ static uv_buf_t
 on_stream_alloc(uv_stream_t* handle, size_t suggested_size)
 {
     PyGILState_STATE gstate = PyGILState_Ensure();
-    uv_buf_t buf = uv_buf_init(PyMem_Malloc(suggested_size), suggested_size);
-    UNUSED_ARG(handle);
+    uv_buf_t buf;
+    Stream *stream = (Stream *)handle->data;
+    PyObject *py_buf = PyBytes_FromStringAndSize((char *)NULL, stream->read_bufsize);
+    stream->tmp_buf = py_buf;
+    buf = uv_buf_init(PyBytes_AS_STRING(py_buf), stream->read_bufsize);
     PyGILState_Release(gstate);
     return buf;
 }
@@ -74,7 +77,10 @@ on_stream_read(uv_stream_t* handle, int nread, uv_buf_t buf)
     Py_INCREF(self);
 
     if (nread >= 0) {
-        data = PyBytes_FromStringAndSize(buf.base, nread);
+        data = self->tmp_buf;
+        if (buf.len != nread) {
+            _PyBytes_Resize(&data, nread);
+        }
         py_errorno = Py_None;
         Py_INCREF(Py_None);
     } else if (nread < 0) {
@@ -92,10 +98,7 @@ on_stream_read(uv_stream_t* handle, int nread, uv_buf_t buf)
     Py_DECREF(data);
     Py_DECREF(py_errorno);
 
-    /* In case of error libuv may not call alloc_cb */
-    if (buf.base != NULL) {
-        PyMem_Free(buf.base);
-    }
+    self->tmp_buf = NULL;
 
     Py_DECREF(self);
     PyGILState_Release(gstate);
@@ -199,13 +202,14 @@ static PyObject *
 Stream_func_start_read(Stream *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_read", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_read", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -220,6 +224,7 @@ Stream_func_start_read(Stream *self, PyObject *args)
         return NULL;
     }
 
+    self->read_bufsize = bufsize;
     tmp = self->on_read_cb;
     Py_INCREF(callback);
     self->on_read_cb = callback;
@@ -435,6 +440,7 @@ Stream_tp_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (!self) {
         return NULL;
     }
+    self->tmp_buf = NULL;
     return (PyObject *)self;
 }
 

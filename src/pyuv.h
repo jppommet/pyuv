@@ -163,6 +163,8 @@ static PyTypeObject SignalType;
 typedef struct {
     Handle handle;
     PyObject *on_read_cb;
+    PyObject *tmp_buf;
+    int read_bufsize;
 } Stream;
 
 static PyTypeObject StreamType;
@@ -194,6 +196,8 @@ static PyTypeObject TTYType;
 typedef struct {
     Handle handle;
     PyObject *on_read_cb;
+    PyObject *tmp_buf;
+    int read_bufsize;
 } UDP;
 
 static PyTypeObject UDPType;

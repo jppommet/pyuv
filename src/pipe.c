@@ -87,7 +87,10 @@ on_pipe_read2(uv_pipe_t* handle, int nread, uv_buf_t buf, uv_handle_type pending
     py_pending = PyInt_FromLong((long)pending);
 
     if (nread >= 0) {
-        data = PyBytes_FromStringAndSize(buf.base, nread);
+        data = self->tmp_buf;
+        if (buf.len != nread) {
+            _PyBytes_Resize(&data, nread);
+        }
         py_errorno = Py_None;
         Py_INCREF(Py_None);
     } else if (nread < 0) {
@@ -106,10 +109,7 @@ on_pipe_read2(uv_pipe_t* handle, int nread, uv_buf_t buf, uv_handle_type pending
     Py_DECREF(py_pending);
     Py_DECREF(py_errorno);
 
-    /* In case of error libuv may not call alloc_cb */
-    if (buf.base != NULL) {
-        PyMem_Free(buf.base);
-    }
+    self->tmp_buf = NULL;
 
     Py_DECREF(self);
     PyGILState_Release(gstate);
@@ -285,13 +285,14 @@ static PyObject *
 Pipe_func_start_read2(Pipe *self, PyObject *args)
 {
     int r;
+    int bufsize = 4096;
     PyObject *tmp, *callback;
 
     tmp = NULL;
 
     RAISE_IF_HANDLE_CLOSED(self, PyExc_HandleClosedError, NULL);
 
-    if (!PyArg_ParseTuple(args, "O:start_read2", &callback)) {
+    if (!PyArg_ParseTuple(args, "O|i:start_read2", &callback, &bufsize)) {
         return NULL;
     }
 
@@ -306,6 +307,7 @@ Pipe_func_start_read2(Pipe *self, PyObject *args)
         return NULL;
     }
 
+    ((Stream *)self)->read_bufsize = bufsize;
     tmp = ((Stream *)self)->on_read_cb;
     Py_INCREF(callback);
     ((Stream *)self)->on_read_cb = callback;
